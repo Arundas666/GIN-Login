@@ -2,12 +2,14 @@ package handler
 
 import (
 	"fmt"
+	"ginpackage/database"
+	"ginpackage/models"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-var userData = make(map[string]User)
 type PageData struct {
 	EmailInvalid string
 	PassInvalid  string
@@ -17,6 +19,7 @@ type User struct {
 	Email    string
 	Password string
 }
+
 func IndexPage(c *gin.Context) {
 	c.HTML(http.StatusFound, "signup.html", nil)
 }
@@ -24,9 +27,10 @@ func Signup(c *gin.Context) {
 	c.HTML(http.StatusFound, "signup.html", nil)
 }
 func SignupPost(c *gin.Context) {
-	name := c.Request.FormValue("name")
-	email := c.Request.FormValue("email")
-	password := c.Request.FormValue("password")
+
+	name := strings.TrimSpace(c.Request.FormValue("name"))
+	email := strings.TrimSpace(c.Request.FormValue("email"))
+	password := strings.TrimSpace(c.Request.FormValue("password"))
 
 	c.Header("Cache-Control", "no-cache,no-store,must-revalidate")
 	c.Header("Expires", "0")
@@ -41,46 +45,49 @@ func SignupPost(c *gin.Context) {
 
 		return
 	}
-	userData[email] = User{Name: name,
-		Password: password,
-		Email:    email,
+	user := models.User{Name: name, Email: email, Password: password}
+	if database.Db == nil {
+		fmt.Println("Database connection is nil!")
+		return
+	}
+	result := database.Db.Create(&user)
+	if result.Error != nil {
+		fmt.Println(result.Error)
 	}
 
 	c.Redirect(http.StatusSeeOther, "/login")
-
-	fmt.Printf("%+v", userData)
-
+	fmt.Printf("%+v", user)
 }
 func Login(c *gin.Context) {
+
 	c.Header("Cache-Control", "no-cache,no-store,must-revalidate")
 	c.Header("Expires", "0")
 	cookie, err := c.Cookie("logincookie")
+	fmt.Println(cookie, "getUserCookie")
 	if err == nil && cookie != "" {
 		c.Redirect(http.StatusSeeOther, "/home")
-
 		return
 	}
 	c.HTML(200, "login.html", nil)
-
 }
 func LoginPost(c *gin.Context) {
+
+	email := strings.TrimSpace(c.Request.FormValue("emailName"))
+	password := strings.TrimSpace(c.Request.FormValue("passwordName"))
+	var user = models.User{}
 	c.Header("Cache-Control", "no-cache,no-store,must-revalidate")
 	c.Header("Expires", "0")
-
 	cookie, err := c.Cookie("logincookie")
+	fmt.Println(cookie, "loginpostcookie")
 	if err != nil {
 		fmt.Println(err)
-
 	} else if cookie != "" {
 
 		c.Redirect(303, "/loginpost")
 		return
 	}
 
-	email := c.Request.FormValue("emailName")
-	password := c.Request.FormValue("passwordName")
-
-	user, ok := userData[email]
+	// user, ok := userData[email]
 
 	if email == "" {
 		var n = PageData{EmailInvalid: "Email is Invalid"}
@@ -91,11 +98,18 @@ func LoginPost(c *gin.Context) {
 	} else if password == "" {
 		var n = PageData{PassInvalid: "Password is Invalid"}
 		c.HTML(200, "login.html", n)
-
 		fmt.Println("PasswordEmpty")
 		return
 	}
-	if ok && password == user.Password {
+	result := database.Db.Where("email =  ?", email).First(&user)
+
+	if result.Error != nil || result.RowsAffected == 0 {
+		c.HTML(303, "login.html", PageData{EmailInvalid: "Email Not Found"})
+	}
+	if password != user.Password {
+		c.HTML(303, "login.html", PageData{PassInvalid: "Password not matches"})
+	}
+	if password == user.Password {
 
 		c.SetSameSite(http.SameSiteLaxMode)
 		c.SetCookie("logincookie", "123", 300, "/", "", false, true)
@@ -103,11 +117,10 @@ func LoginPost(c *gin.Context) {
 		cookie, _ := c.Cookie("logincookie")
 		fmt.Println(cookie)
 		c.HTML(http.StatusSeeOther, "index.html", cookie)
-		c.HTML(200, "index.html", "Hey Yaaa")
 
 	} else {
-		// c.Redirect(303, "/login")
-		c.Redirect(303,"/home")
+
+		c.Redirect(303, "/login")
 
 		return
 	}
@@ -116,6 +129,7 @@ func LoginPost(c *gin.Context) {
 func HomeMethod(c *gin.Context) {
 	cookie, err := c.Cookie("logincookie")
 	if err != nil || cookie == "" {
+		// c.HTML(200,"login.html",nil)
 		c.Redirect(303, "/login")
 
 		return
